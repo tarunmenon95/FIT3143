@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
     int numbers[NUMBERS_LENGTH] = {0};
 
     // fill numbers
-#pragma omp parallel
+#pragma omp parallel num_threads(4)
     {
         // unique seed per thread
         int seed = (int)time(NULL) ^ omp_get_thread_num();
