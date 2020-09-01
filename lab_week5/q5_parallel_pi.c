@@ -2,7 +2,6 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 
 int main(int argc, char* argv[]) {
     int num_tasks, rank, n;
@@ -18,6 +17,7 @@ int main(int argc, char* argv[]) {
     // getting N from root
     if (rank == root) {
         printf("Enter n value:\n");
+        fflush(stdout);
         scanf("%d", &n);
     }
     // start timing
@@ -42,6 +42,7 @@ int main(int argc, char* argv[]) {
 
         printf("Calculated Pi value (Parallel-AlgoI) = %12.9f\n", pi_val);
         printf("Overall time (s): %lf\n", end - start);
+        fflush(stdout);
     }
     MPI_Finalize();
 
