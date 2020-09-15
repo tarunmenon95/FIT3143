@@ -1,20 +1,19 @@
 #include <stdio.h>
 
 #include "mpi.h"
-/* This example handles a 12 x 12 mesh, on 4 processors only. */
 #define maxn 12
 
 int main(int argc, char* argv[]) {
     int rank, value, size, errcnt, toterr, i, j;
     int up_nbr, down_nbr;
-    MPI_Status status;
-    double x[12][12];
-    double xlocal[(12 / 4) + 2][12];
+    MPI_Request requests[4];
+    MPI_Status status[4];
+    double x[maxn][maxn];
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    if (size != 4) MPI_Abort(MPI_COMM_WORLD, 1);
-    /* xlocal[][0] is lower ghostpoints, xlocal[][maxn+2] is upper */
+    if (maxn % size != 0) MPI_Abort(MPI_COMM_WORLD, 1);
+    double xlocal[(maxn / size) + 2][maxn];
     /* Fill the data as specified */
     for (i = 1; i <= maxn / size; i++)
         for (j = 0; j < maxn; j++) xlocal[i][j] = rank;
@@ -26,16 +25,25 @@ int main(int argc, char* argv[]) {
     /* Note the use of xlocal[i] for &xlocal[i][0]*/
     /* Note that we use MPI_PROC_NULL to remove the if statements that would be
      * needed without MPI_PROC_NULL */
-    up_nbr = rank + 1;
-    if (up_nbr >= size) up_nbr = MPI_PROC_NULL;
-    down_nbr = rank - 1;
-    if (down_nbr < 0) down_nbr = MPI_PROC_NULL;
-    MPI_Sendrecv(xlocal[maxn / size], maxn, MPI_DOUBLE, up_nbr, 0, xlocal[0],
-                 maxn, MPI_DOUBLE, down_nbr, 0, MPI_COMM_WORLD, &status);
-    /* Send down and receive from above (shift down) */
-    MPI_Sendrecv(xlocal[1], maxn, MPI_DOUBLE, down_nbr, 1,
-                 xlocal[maxn / size + 1], maxn, MPI_DOUBLE, up_nbr, 1,
-                 MPI_COMM_WORLD, &status);
+    up_nbr = rank + 1 >= size ? MPI_PROC_NULL : rank + 1;
+    down_nbr = rank - 1 < 0 ? MPI_PROC_NULL : rank - 1;
+
+    // send the xlocal[maxn/size] up
+    MPI_Isend(xlocal[maxn / size], maxn, MPI_DOUBLE, up_nbr, 0, MPI_COMM_WORLD,
+              &requests[0]);
+    // send the xlocal[1] down
+    MPI_Isend(xlocal[1], maxn, MPI_DOUBLE, down_nbr, 1, MPI_COMM_WORLD,
+              &requests[1]);
+    // receive into xlocal[0] from below
+    MPI_Irecv(xlocal[0], maxn, MPI_DOUBLE, down_nbr, 0, MPI_COMM_WORLD,
+              &requests[2]);
+    // receive into xlocal[maxn/size + 1] from above
+    MPI_Irecv(xlocal[maxn / size + 1], maxn, MPI_DOUBLE, up_nbr, 1,
+              MPI_COMM_WORLD, &requests[3]);
+
+    // wait for ops to complete
+    MPI_Waitall(4, requests, status);
+
     /* Check that we have the correct results */
     errcnt = 0;
     for (i = 1; i <= maxn / size; i++)
