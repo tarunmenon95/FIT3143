@@ -1,20 +1,18 @@
 #include <stdio.h>
 
 #include "mpi.h"
-/* This example handles a 12 x 12 mesh, on 4 processors only. */
 #define maxn 12
 
 int main(int argc, char* argv[]) {
     int rank, value, size, errcnt, toterr, i, j;
     int up_nbr, down_nbr;
     MPI_Status status;
-    double x[12][12];
-    double xlocal[(12 / 4) + 2][12];
+    double x[maxn][maxn];
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    if (size != 4) MPI_Abort(MPI_COMM_WORLD, 1);
-    /* xlocal[][0] is lower ghostpoints, xlocal[][maxn+2] is upper */
+    if (maxn % size != 0) MPI_Abort(MPI_COMM_WORLD, 1);
+    double xlocal[(maxn / size) + 2][maxn];
     /* Fill the data as specified */
     for (i = 1; i <= maxn / size; i++)
         for (j = 0; j < maxn; j++) xlocal[i][j] = rank;
