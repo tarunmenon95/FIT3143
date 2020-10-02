@@ -59,13 +59,10 @@ class Client:
                             "datanodes": resp["datanodes"][1:],
                             "block_id": resp["block_id"]
                         }
-                        print(datanode_addr)
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                             wrapper = SockerWrapper(sock)
                             wrapper.connect(datanode_addr)
-                            print("Sending json")
                             wrapper.send_msg_as_json(data)
-                            print("Sending bytes")
                             wrapper.send_msg(file_bytes)
                         print("Successfully written")
                 elif cmd_args[0] == "ls":
@@ -103,7 +100,6 @@ class Client:
                             wrapper.connect(self._namenode_addr_tuple)
                             wrapper.send_msg_as_json(data)
                             resp = wrapper.recv_msg_as_json()
-                            print(resp)
                             if not resp["success"]:
                                 raise Exception(resp["message"])
                         datanode_addrs = resp["datanode_addrs"]

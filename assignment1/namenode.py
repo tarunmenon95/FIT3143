@@ -14,7 +14,7 @@ NAMESPACE_ID = "pythonhdfs3143"
 REPLICATION_FACTOR = 2
 
 
-class Inode:
+class Inode:  # can be a dir or a file
     def __init__(self, name: str, is_dir: bool, block_id=None):
         self._is_dir = is_dir
         self._name = name
@@ -155,10 +155,10 @@ class FileSystem:
         inode = self._get_inode_from_dir_list(existing_dirs, True)
         # get dir to be removed
         i = inode.get_inode_index(rm_dir)
-        inode.rm_inode(i)
         rm_inode = self._inode_table[i]
         if not rm_inode.is_dir():
             raise ValueError(f"Not a directory: {rm_inode.get_name()}")
+        inode.rm_inode(i)
         # delete this dir recursively
         self._rm(rm_inode, i)
         print(f"rmdir: {path}")
@@ -169,7 +169,7 @@ class FileSystem:
         # to remove, mark them as unused in the bitmap
         self._inode_bitmap[index] = False
         for tup in inode.get_inodes():  # if rm file, this will return empty list hence terminate here
-            _, new_index = tup
+            new_index, _ = tup
             self._rm(self._inode_table[new_index], new_index)
 
     def mkfile(self, path: str):
@@ -194,10 +194,10 @@ class FileSystem:
         inode = self._get_inode_from_dir_list(existing_dirs, False)
         # get dir to be removed
         i = inode.get_inode_index(rmfile)
-        inode.rm_inode(i)
         rm_inode = self._inode_table[i]
         if rm_inode.is_dir():
             raise ValueError(f"Not a file: {rm_inode.get_name()}")
+        inode.rm_inode(i)
         # delete this file
         self._rm(rm_inode, i)
         print(f"rmfile: {path}")
@@ -215,15 +215,15 @@ class Server:
         self._addr_tuple = addr_tuple
         self._fsimage = fsimage
         self._fsimage_write_lock = threading.Lock()
-        # map datanode id to their address
+        # map datanode id to their address tuple
         self._datanodes = {}
         # map datanode id to list of its block ids
         self._blocks = {}
 
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._socket.bind(self._addr_tuple)
 
     def run(self):
+        self._socket.bind(self._addr_tuple)
         self._socket.listen(5)
         while True:
             client, address = self._socket.accept()
@@ -234,8 +234,9 @@ class Server:
         wrapper = SockerWrapper(client)
         initial_msg = wrapper.recv_msg_as_json()
 
-        if initial_msg["message_type"] == "DATANODE_HANDSHAKE":
+        if initial_msg["message_type"] == "DATANODE_HANDSHAKE":  # datanode requesting handshake
             print("Handshake request")
+            # check if software versions match
             initial_msg["handshake"] = initial_msg["software_version"] == SOFTWARE_VERSION
             if initial_msg["namespace_id"] is None:  # new datanode, add this this cluster
                 initial_msg["namespace_id"] = NAMESPACE_ID
@@ -249,49 +250,41 @@ class Server:
                 self._datanodes[initial_msg["datanode_id"]] = initial_msg["address_tuple"]
             # respond to handshake
             wrapper.send_msg_as_json(initial_msg)
-        elif initial_msg["message_type"] == "DATANODE_HEARTBEAT":
+        elif initial_msg["message_type"] == "DATANODE_HEARTBEAT":  # update datanodes list of blocks
             print("Datanode heartbeat")
             self._blocks[initial_msg["datanode_id"]] = initial_msg["block_report"]
-        elif initial_msg["message_type"] == "CLIENT":
+        elif initial_msg["message_type"] == "CLIENT":  # requests from hdfs client
             print("Client activity")
-            if initial_msg["action_type"] == "mkdir":
+            # these activities are very similar
+            if initial_msg["action_type"] in ("mkdir", "rmdir", "rm"):
                 path = initial_msg["path"]
                 data = {}
+                # lock to prevent any other thread also modifying fsimage at same time
                 with self._fsimage_write_lock:
                     try:
-                        self._fsimage.mkdir(path)
+                        if initial_msg["action_type"] == "mkdir":
+                            # make a directory
+                            self._fsimage.mkdir(path)
+                        elif initial_msg["action_type"] == "rmdir":
+                            # remove a directory (recursively)
+                            self._fsimage.rmdir(path)
+                        elif initial_msg["action_type"] == "rm":
+                            # remove a file (inode)
+                            # won't remove actual blocks from datanodes, though ideally should
+                            self._fsimage.rmfile(path)
                         data["success"] = True
                     except Exception as e:
-                        data["success"] = False
-                        data["message"] = str(e)
-                wrapper.send_msg_as_json(data)
-            elif initial_msg["action_type"] == "rmdir":
-                path = initial_msg["path"]
-                data = {}
-                with self._fsimage_write_lock:
-                    try:
-                        self._fsimage.rmdir(path)
-                        data["success"] = True
-                    except Exception as e:
-                        data["success"] = False
-                        data["message"] = str(e)
-                wrapper.send_msg_as_json(data)
-            elif initial_msg["action_type"] == "rm":
-                path = initial_msg["path"]
-                data = {}
-                with self._fsimage_write_lock:
-                    try:
-                        self._fsimage.rmfile(path)
-                        data["success"] = True
-                    except Exception as e:
+                        # some sort of error, inform client
                         data["success"] = False
                         data["message"] = str(e)
                 wrapper.send_msg_as_json(data)
             elif initial_msg["action_type"] == "ins":
+                # client wants to creat file
                 path = initial_msg["path"]
                 data = {}
                 with self._fsimage_write_lock:
                     try:
+                        # add the file inode
                         block_id = self._fsimage.mkfile(path)
                         data["success"] = True
                         # choose 2 random datanodes to replicate to, send their address tuples
@@ -302,11 +295,14 @@ class Server:
                         data["message"] = str(e)
                 wrapper.send_msg_as_json(data)
             elif initial_msg["action_type"] == "cat":
+                # client wants a file data
                 path = initial_msg["path"]
                 data = {}
                 try:
+                    # locate the block id
                     block_id = self._fsimage.get_block_id_from_path(path)
                     datanode_found = False
+                    # find all datanodes that hold that specific block
                     data["datanode_addrs"] = []
                     for datanode_id in self._blocks:
                         if block_id in self._blocks[datanode_id]:
@@ -321,6 +317,7 @@ class Server:
                     data["message"] = str(e)
                 wrapper.send_msg_as_json(data)
             elif initial_msg["action_type"] == "ls":
+                # list contents of a dir
                 path = initial_msg["path"]
                 data = {}
                 try:
