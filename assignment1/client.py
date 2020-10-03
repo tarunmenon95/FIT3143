@@ -114,15 +114,18 @@ class Client:
                             }
                             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                                 wrapper = SockerWrapper(sock)
-                                wrapper.connect(datanode)
-                                wrapper.send_msg_as_json(data)
-                                resp = wrapper.recv_msg_as_json()
-                                if not resp["success"]:
+                                try:
+                                    wrapper.connect(datanode)
+                                    wrapper.send_msg_as_json(data)
+                                    resp = wrapper.recv_msg_as_json()
+                                    if not resp["success"]:
+                                        continue
+                                    else:
+                                        file_bytes = wrapper.recv_msg()
+                                        got_file = True
+                                        break
+                                except ConnectionRefusedError:  # if datanode offline
                                     continue
-                                else:
-                                    file_bytes = wrapper.recv_msg()
-                                    got_file = True
-                                    break
                         if not got_file:
                             print("Error: couldn't locate file block")
                         else:
@@ -130,7 +133,7 @@ class Client:
                             file_text = str(file_bytes, "utf-8")
                             print(file_text)
                 elif cmd_args[0] == "help":
-                    txt = "mkdir <path>\nrmdir <path>\nrm <path>\nins <outside_path> <fs_path>\ncat <path>\nls <path>\nhelp"
+                    txt = "mkdir <path>\nrmdir <path>\nrm <path>\nins <outside_path> <fs_path>\ncat <path>\nls <path>\nhelp\nexit"
                     print(txt)
                 else:
                     print(f"Unknown command: {cmd_args[0]}")
