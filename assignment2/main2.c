@@ -88,80 +88,66 @@ int main(int argc, char* argv[]) {
                     reorder, &grid_comm);
 
     int base_station_world_rank = size - 1;
-    if (grid_comm == MPI_COMM_NULL) {
-        // base station
-        double start_time, end_time, sleep_length;
-        struct timespec ts;
-        int iteration = 0;
-        while (iteration < max_iterations) {
-            start_time = MPI_Wtime();
-            ++iteration;
-            printf("Base station iteration: %d\n", iteration);
-            end_time = MPI_Wtime();
-            sleep_length = (start_time +
-                            ((double)INTERVAL_MILLISECONDS / 1000) - end_time) *
-                           SECONDS_TO_NANOSECONDS;
-            ts.tv_sec = 0;
-            ts.tv_nsec = (long)sleep_length;
-            nanosleep(&ts, NULL);
-        }
-        char msg = 't';
-        MPI_Request reqs[size - 1];
-        for (int i = 0; i < size - 1; ++i)
-            MPI_Isend(&msg, 1, MPI_CHAR, i, 0, MPI_COMM_WORLD, &reqs[i]);
-        MPI_Waitall(size - 1, reqs, MPI_STATUSES_IGNORE);
-        printf("Base station exiting\n");
-    } else {
-        // ground sensor
-        int grid_rank;
-        MPI_Comm_rank(grid_comm, &grid_rank);
-        int coords[2];
-        // get coordinates of this ground sensor
+    double start_time, end_time, sleep_length;
+    struct timespec ts;
+    int iteration = 0;
+    int is_base = grid_comm == MPI_COMM_NULL;
+    char terminate_msg = is_base ? 't' : '\0';
+    int grid_rank;
+    if (!is_base) MPI_Comm_rank(grid_comm, &grid_rank);
+    int coords[2];
+    int reading;
+    // get coordinates of ground sensor in grid
+    if (!is_base)
         MPI_Cart_coords(grid_comm, grid_rank, GRID_DIMENSIONS, coords);
+    int neighbour_readings[4];
+    int bcast_casted = 0;
+    int bcast_received = 0;
+    MPI_Request bcast_req;
+    while (is_base && iteration < max_iterations ||
+           !is_base && !bcast_received) {
+        start_time = MPI_Wtime();
 
-        // clockwise starting from above (even if edge/corner case)
-        int neighbour_readings[4];
+        ++iteration;
 
-        // to receive single char from base station (terminate sig)
-        char base_recv_buffer = '\0';
+        for (int i = 0; i < 4; ++i) neighbour_readings[i] = -1;
+        reading = rand() % (1 + MAX_READING_VALUE);
 
-        // async recv for terminate signal from base
-        MPI_Request base_recv_req;
-        MPI_Irecv(&base_recv_buffer, 1, MPI_CHAR, base_station_world_rank, 0,
-                  MPI_COMM_WORLD, &base_recv_req);
-
-        int recv_completed = 0;
-        int reading = 0;
-        double start_time, end_time, sleep_length;
-        struct timespec ts;
-        MPI_Test(&base_recv_req, &recv_completed, MPI_STATUS_IGNORE);
-        int iteration = 0;
-        while (!recv_completed || base_recv_buffer != 't') {
-            start_time = MPI_Wtime();  // seconds
-            ++iteration;
-
-            for (int i = 0; i < 4; ++i) neighbour_readings[i] = -1;
-
-            reading = rand() % (1 + MAX_READING_VALUE);
-
-            MPI_Test(&base_recv_req, &recv_completed, MPI_STATUS_IGNORE);
-
+        if (!is_base)
             MPI_Neighbor_allgather(&reading, 1, MPI_INT, neighbour_readings, 1,
                                    MPI_INT, grid_comm);
 
-            printf("[%d] %d:(%d,%d)|%d|%d,%d,%d,%d\n", iteration, grid_rank,
-                   coords[0], coords[1], reading, neighbour_readings[0],
-                   neighbour_readings[1], neighbour_readings[2],
-                   neighbour_readings[3]);
-
-            end_time = MPI_Wtime();  // seconds
-            sleep_length = (start_time +
-                            ((double)INTERVAL_MILLISECONDS / 1000) - end_time) *
-                           SECONDS_TO_NANOSECONDS;
-            ts.tv_sec = 0;
-            ts.tv_nsec = (long)sleep_length;
-            nanosleep(&ts, NULL);
+        if (is_base) {
+            printf("[%d] Base|%.9f\n", iteration, start_time);
+        } else {
+            printf("[%d] %d:(%d,%d)|%d|%d,%d,%d,%d|%.9f\n", iteration,
+                   grid_rank, coords[0], coords[1], reading,
+                   neighbour_readings[0], neighbour_readings[1],
+                   neighbour_readings[2], neighbour_readings[3], start_time);
         }
+
+        if (is_base && iteration >= max_iterations ||
+            !is_base && !bcast_casted) {
+            MPI_Ibcast(&terminate_msg, 1, MPI_CHAR, base_station_world_rank,
+                       MPI_COMM_WORLD, &bcast_req);
+            if (!is_base) bcast_casted = 1;
+            if (is_base) MPI_Wait(&bcast_req, MPI_STATUS_IGNORE);
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+        if (!is_base) MPI_Test(&bcast_req, &bcast_received, MPI_STATUS_IGNORE);
+
+        end_time = MPI_Wtime();
+        sleep_length =
+            (start_time + ((double)INTERVAL_MILLISECONDS / 1000) - end_time) *
+            SECONDS_TO_NANOSECONDS;
+        ts.tv_sec = 0;
+        ts.tv_nsec = (long)sleep_length;
+        nanosleep(&ts, NULL);
+    }
+
+    if (is_base) {
+        printf("Base station exiting\n");
+    } else {
         printf("Rank %d (%d, %d) exiting\n", grid_rank, coords[0], coords[1]);
     }
 
