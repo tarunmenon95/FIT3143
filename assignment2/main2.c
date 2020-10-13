@@ -100,6 +100,8 @@ int main(int argc, char* argv[]) {
     // get coordinates of ground sensor in grid
     if (!is_base)
         MPI_Cart_coords(grid_comm, grid_rank, GRID_DIMENSIONS, coords);
+    // [Top Bottom Left Right]
+    // by dimensions order, negative then positive
     int neighbour_readings[4];
     int bcast_casted = 0;
     int bcast_received = 0;
@@ -151,6 +153,7 @@ int main(int argc, char* argv[]) {
         printf("Rank %d (%d, %d) exiting\n", grid_rank, coords[0], coords[1]);
     }
 
+    MPI_Comm_free(&grid_comm);
     MPI_Finalize();
     exit(0);
 }
