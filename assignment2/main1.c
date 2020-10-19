@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #define INTERVAL_MILLISECONDS 1000
@@ -14,13 +15,14 @@
 void base_station(int, int, int, int, MPI_Datatype);
 void ground_station(MPI_Comm, int, int, int, MPI_Datatype);
 void create_ground_message_type(MPI_Datatype*);
-void sleep_until(double);
+void sleep_until_interval(double, int);
 void* infrared_thread(void*);
+int file_exists(const char*);
 
 typedef struct {
     int coords[2];
     int reading;
-    double timestamp;
+    double mpi_time;
 } SatelliteReading;
 
 typedef struct {
@@ -32,12 +34,13 @@ typedef struct {
     int neighbour_ranks[4];
     int neighbour_coords[4][2];
     int neighbour_readings[4];
-    long time_since_epoch;  // when this event occurred
+    double mpi_time;        // when the event occured
+    long time_since_epoch;  // to format as datetime
 } GroundMessage;
 
 // pointer to next spot to replace in infrared_readings array
 int infrared_readings_latest = 0;
-SatelliteReading infrared_readings[50];
+SatelliteReading infrared_readings[30];
 
 int terminate = 0;
 
@@ -126,7 +129,9 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
     pthread_t tid;
     pthread_create(&tid, NULL, infrared_thread, (void*)dimension_sizes);
     int messages_available;
-    while (iteration < max_iterations) {
+    // if this file exists in pwd then terminate
+    char sentinel_filename[] = "sentinel";
+    while (iteration < max_iterations && !file_exists(sentinel_filename)) {
         start_time = MPI_Wtime();
 
         MPI_Iprobe(MPI_ANY_SOURCE, EVENT_MSG_TAG, MPI_COMM_WORLD,
@@ -136,7 +141,14 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
             MPI_Recv(&msg, 1, ground_message_type, MPI_ANY_SOURCE,
                      EVENT_MSG_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            printf("Event from %d: %d\n", msg.rank, msg.reading);
+            time_t epoch_time = (time_t)msg.time_since_epoch;
+            struct tm* tm = localtime(&epoch_time);
+            char display_datetime[64];
+            // %c = preferred locale format
+            strftime(display_datetime, sizeof(display_datetime), "%c", tm);
+
+            printf("Event from %d [%d] at %s\n", msg.rank, msg.reading,
+                   display_datetime);
 
             MPI_Iprobe(MPI_ANY_SOURCE, EVENT_MSG_TAG, MPI_COMM_WORLD,
                        &messages_available, MPI_STATUS_IGNORE);
@@ -144,8 +156,14 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
 
         printf("[%d] Base|%.9f\n", iteration, start_time);
 
-        sleep_until(start_time);
+        sleep_until_interval(start_time, INTERVAL_MILLISECONDS);
         ++iteration;
+    }
+
+    if (iteration >= max_iterations) {
+        printf("%d iterations reached, terminating\n", iteration);
+    } else {
+        printf("Sentinel file detected, terminating\n");
     }
 
     terminate = 1;
@@ -207,6 +225,7 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             msg.rank = grid_rank;
             msg.coords[0] = coords[0];
             msg.coords[1] = coords[1];
+            msg.mpi_time = start_time;
 
             int matching_neighbours = 0;
             // check neighbours
@@ -242,7 +261,7 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             }
         }
 
-        sleep_until(start_time);
+        sleep_until_interval(start_time, INTERVAL_MILLISECONDS);
         // fix sync issue...
         // in case one proc gets ahead and subsequently blocks at gather
         MPI_Barrier(grid_comm);
@@ -257,9 +276,9 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
 
 void create_ground_message_type(MPI_Datatype* ground_message_type) {
     // create MPI datatype for GroundMessage
-    int no_of_fields = 9;
-    int block_lengths[9] = {1, 1, 1, 2, 1, 4, 4 * 2, 4, 1};
-    MPI_Aint displacements[9];
+    int no_of_fields = 10;
+    int block_lengths[10] = {1, 1, 1, 2, 1, 4, 4 * 2, 4, 1, 1};
+    MPI_Aint displacements[10];
     displacements[0] = offsetof(GroundMessage, iteration);
     displacements[1] = offsetof(GroundMessage, reading);
     displacements[2] = offsetof(GroundMessage, rank);
@@ -268,20 +287,22 @@ void create_ground_message_type(MPI_Datatype* ground_message_type) {
     displacements[5] = offsetof(GroundMessage, neighbour_ranks);
     displacements[6] = offsetof(GroundMessage, neighbour_coords);
     displacements[7] = offsetof(GroundMessage, neighbour_readings);
-    displacements[8] = offsetof(GroundMessage, time_since_epoch);
-    MPI_Datatype datatypes[9] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT,
-                                 MPI_INT, MPI_INT, MPI_INT, MPI_LONG};
+    displacements[8] = offsetof(GroundMessage, mpi_time);
+    displacements[9] = offsetof(GroundMessage, time_since_epoch);
+    MPI_Datatype datatypes[10] = {MPI_INT,    MPI_INT, MPI_INT, MPI_INT,
+                                  MPI_INT,    MPI_INT, MPI_INT, MPI_INT,
+                                  MPI_DOUBLE, MPI_LONG};
     MPI_Type_create_struct(no_of_fields, block_lengths, displacements,
                            datatypes, ground_message_type);
     MPI_Type_commit(ground_message_type);
 }
 
-void sleep_until(double start_time) {
-    // sleep until INTERVAL_MILLISECONDS has passed since start_time
+void sleep_until_interval(double start_time, int interval_ms) {
+    // sleep until interval_ms has passed since start_time
     struct timespec ts;
     double end_time = MPI_Wtime();
     double sleep_length =
-        (start_time + ((double)INTERVAL_MILLISECONDS / 1000) - end_time) *
+        (start_time + ((double)interval_ms / 1000) - end_time) *
         SECONDS_TO_NANOSECONDS;
     ts.tv_sec = 0;
     ts.tv_nsec = (long)sleep_length;
@@ -293,10 +314,22 @@ void* infrared_thread(void* arg) {
     int* dimensions = (int*)arg;
     int rows = dimensions[0];
     int cols = dimensions[1];
+    SatelliteReading s_reading;
     while (!terminate) {
         start_time = MPI_Wtime();
         printf("Thread heartbeat\n");
-        sleep_until(start_time);
+
+        s_reading.reading = rand() % (1 + MAX_READING_VALUE);
+        s_reading.coords[0] = rand() % rows;
+        s_reading.coords[1] = rand() % cols;
+        s_reading.mpi_time = start_time;
+
+        sleep_until_interval(start_time, INTERVAL_MILLISECONDS / 2);
     }
     printf("Thread terminating\n");
+}
+
+int file_exists(const char* filename) {
+    struct stat b;
+    return stat(filename, &b) == 0;
 }
