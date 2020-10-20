@@ -273,14 +273,8 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
 
             if (matching_neighbours >= 2) {
                 // event, send to base
-                printf("%d sending\n", grid_rank);
                 MPI_Send(&msg, 1, ground_message_type, base_station_world_rank,
                          EVENT_MSG_TAG, MPI_COMM_WORLD);
-                printf("[%d] %d:(%d,%d)|%d|%d,%d,%d,%d|%.9f\n", iteration,
-                       grid_rank, coords[0], coords[1], reading,
-                       neighbour_readings[0], neighbour_readings[1],
-                       neighbour_readings[2], neighbour_readings[3],
-                       start_time);
             }
         }
 
