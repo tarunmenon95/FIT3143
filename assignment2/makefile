@@ -1,14 +1,15 @@
 # C compiler
 CC = mpicc
 # compiler flags
-CFLAGS = -g -Wall -lm -pthread
+CFLAGS = -g -Wall
+LIBS = -lm -pthread
 
 TARGET = prog
 
 default: $(TARGET)
 
 $(TARGET): main.o common.o base.o ground.o
-	$(CC) $(CFLAGS) -o $(TARGET) main.o common.o base.o ground.o
+	$(CC) $(CFLAGS) $(LIBS) -o $(TARGET) main.o common.o base.o ground.o
 
 main.o: main.c common.h base.h ground.h
 	$(CC) $(CFLAGS) -c main.c

@@ -67,7 +67,6 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             msg.rank = grid_rank;
             msg.coords[0] = coords[0];
             msg.coords[1] = coords[1];
-            msg.mpi_time = start_time;
 
             int matching_neighbours = 0;
             // check neighbours
@@ -94,6 +93,7 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             msg.time_since_epoch = (long)time(NULL);
 
             if (matching_neighbours >= 2) {
+                msg.mpi_time = MPI_Wtime();
                 // event with at least 2 matching neighbours, send to base
                 // (should ideally) buffer hence won't block
                 MPI_Send(&msg, 1, ground_message_type, base_station_world_rank,
