@@ -54,12 +54,15 @@ int main() {
         }
         case 1: {
             // WRITE PART (b) HERE
+            // how many rows to expect
             MPI_Recv(&num_rows, 1, MPI_INT, 0, TAG, MPI_COMM_WORLD,
                      MPI_STATUS_IGNORE);
+            // pass along to next processor
             MPI_Send(&num_rows, 1, MPI_INT, 2, TAG, MPI_COMM_WORLD);
 
             float buf[5];
             while (counter < num_rows) {
+                // receive a, b and discriminator
                 MPI_Recv(buf, 3, MPI_FLOAT, 0, TAG, MPI_COMM_WORLD,
                          MPI_STATUS_IGNORE);
                 a_coeff = buf[0] * 2.0f;
