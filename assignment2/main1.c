@@ -188,10 +188,10 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
     // indicate to thread to terminate
     terminate = 1;
     // broadcast to ground stations to terminate
+    // since ground stations use Ibcast to receive bcast, must use Ibcast here
     MPI_Ibcast(&buf, 1, MPI_CHAR, base_station_world_rank, MPI_COMM_WORLD,
                &bcast_req);
-    // since ground stations use Ibcast to receive bcast, must use Ibcast too
-    // hence must wait, even though same as normal Bcast
+    // hence must wait, even though essentially same as normal Bcast
     MPI_Wait(&bcast_req, MPI_STATUS_IGNORE);
     pthread_join(tid, NULL);
     printf("Base station exiting\n");
@@ -221,27 +221,36 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     int neighbour_readings[4];
     int neighbour_ranks[4];
     int neighbour_coords[4][2];
+    // get ranks of neighbours (according to grid_comm)
     MPI_Cart_shift(grid_comm, 0, 1, &neighbour_ranks[0],
                    &neighbour_ranks[1]);  // top, bottom
     MPI_Cart_shift(grid_comm, 1, 1, &neighbour_ranks[2],
                    &neighbour_ranks[3]);  // left, right
+    // get the coords of neighbours
     for (int i = 0; i < 4; ++i) {
+        // in case edge/corner case and don't have 4 neighbours
         if (neighbour_ranks[i] != MPI_PROC_NULL)
             MPI_Cart_coords(grid_comm, neighbour_ranks[i], grid_dimensions,
                             neighbour_coords[i]);
     }
+    // to listen for base station bcast indicating termination
+    // (only time base station will bcast hence data sent doesn't matter)
     MPI_Request bcast_req;
     MPI_Ibcast(&buf, 1, MPI_CHAR, base_station_world_rank, MPI_COMM_WORLD,
                &bcast_req);
-    while (!terminate) {
+    int bcast_received = 0;
+    while (!bcast_received) {
         start_time = MPI_Wtime();
 
+        // clear neighbour readings each iteration
         for (int i = 0; i < 4; ++i) neighbour_readings[i] = -1;
         reading = rand() % (1 + MAX_READING_VALUE);
+        // gather readings from neighbours
         MPI_Neighbor_allgather(&reading, 1, MPI_INT, neighbour_readings, 1,
                                MPI_INT, grid_comm);
 
         if (reading >= READING_THRESHOLD) {
+            // event detected, fill in ground message
             GroundMessage msg;
             msg.iteration = iteration;
             msg.reading = reading;
@@ -256,6 +265,8 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
                 if (neighbour_readings[i] != -1 &&
                     abs(reading - neighbour_readings[i]) <=
                         READING_DIFFERENCE) {
+                    // found a matching neighbour (within tolerance)
+                    // fill in their data
                     msg.neighbour_ranks[matching_neighbours] =
                         neighbour_ranks[i];
                     msg.neighbour_coords[matching_neighbours][0] =
@@ -269,10 +280,12 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             }
 
             msg.matching_neighbours = matching_neighbours;
+            // use to format datetime
             msg.time_since_epoch = (long)time(NULL);
 
             if (matching_neighbours >= 2) {
-                // event, send to base
+                // event with at least 2 matching neighbours, send to base
+                // (should ideally) buffer hence won't block
                 MPI_Send(&msg, 1, ground_message_type, base_station_world_rank,
                          EVENT_MSG_TAG, MPI_COMM_WORLD);
             }
@@ -282,7 +295,7 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
         // fix sync issue...
         // in case one proc gets ahead and subsequently blocks at gather
         MPI_Barrier(grid_comm);
-        MPI_Test(&bcast_req, &terminate, MPI_STATUS_IGNORE);
+        MPI_Test(&bcast_req, &bcast_received, MPI_STATUS_IGNORE);
         ++iteration;
     }
     MPI_Wait(&bcast_req, MPI_STATUS_IGNORE);
