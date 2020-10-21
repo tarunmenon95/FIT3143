@@ -16,19 +16,32 @@ SatelliteReading infrared_readings[30];
 // flag to indicate whether thread should terminate
 int terminate = 0;
 
+int format_to_datetime(time_t t, char* out_buf, size_t out_buf_len) {
+    struct tm* tm = localtime(&t);
+    return strftime(out_buf, out_buf_len, "%c", tm);
+}
+
 void base_station(int base_station_world_rank, int max_iterations, int rows,
                   int cols, MPI_Datatype ground_message_type) {
-    double prog_start_time = MPI_Wtime();
-    double start_time;
+    FILE* log_fp = fopen("base_station.log", "w");
+    char init_msg[128];
+    char init_msg_dt[64];
+    format_to_datetime(time(NULL), init_msg_dt, sizeof(init_msg_dt));
+    snprintf(init_msg, sizeof(init_msg),
+             "Start time: %s\nGrid size: %d rows, %d columns\n\n", init_msg_dt,
+             rows, cols);
+    printf("%s", init_msg);
+    fprintf(log_fp, "%s", init_msg);
+
+    double start_time, prog_start_time = MPI_Wtime();
     int dimension_sizes[2] = {rows, cols};
-    int iteration = 0;
     // doesn't matter what we send in bcast
     char buf = '\0';
     MPI_Request bcast_req;
     pthread_t tid;
     pthread_create(&tid, NULL, infrared_thread, (void*)dimension_sizes);
     int messages_available;
-    int true_events = 0, false_events = 0;
+    int iteration = 0, true_events = 0, false_events = 0;
     // if this file exists in pwd then terminate
     char sentinel_filename[] = "sentinel";
     // -1 means run forever (until sentinel)
@@ -46,7 +59,8 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
                      EVENT_MSG_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             double recv_time = MPI_Wtime();
 
-            int is_true_alert = process_ground_message(&g_msg, recv_time);
+            int is_true_alert =
+                process_ground_message(log_fp, &g_msg, recv_time);
             true_events += 1 & is_true_alert;
             false_events += 1 & !is_true_alert;
 
@@ -57,12 +71,6 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
 
         sleep_until_interval(start_time, INTERVAL_MILLISECONDS);
         ++iteration;
-    }
-
-    if (iteration >= max_iterations) {
-        printf("%d iterations reached, terminating\n", iteration);
-    } else {
-        printf("Sentinel file detected, terminating\n");
     }
 
     // indicate to thread to terminate
@@ -77,13 +85,28 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
 
     double prog_duration_seconds = MPI_Wtime() - prog_start_time;
 
-    printf(
-        "--------------------\nSummary\nSimulation time (seconds): %.5f\nTrue "
-        "events: %d\nFalse events: %d\n",
-        prog_duration_seconds, true_events, false_events);
+    char end_msg[256];
+    int end_msg_len = 0;
+    if (iteration >= max_iterations) {
+        end_msg_len +=
+            snprintf(end_msg, sizeof(end_msg),
+                     "\n%d iterations reached, terminating\n", iteration);
+    } else {
+        end_msg_len += snprintf(end_msg, sizeof(end_msg),
+                                "\nSentinel file detected, terminating\n");
+    }
+    snprintf(end_msg + end_msg_len, sizeof(end_msg) - end_msg_len,
+             "--------------------\nSummary:\n\nSimulation time (seconds): "
+             "%.5f\nTrue events: %d\nFalse events: %d\n",
+             prog_duration_seconds, true_events, false_events);
+    printf("%s", end_msg);
+    fprintf(log_fp, "%s", end_msg);
+
+    fclose(log_fp);
 }
 
-int process_ground_message(GroundMessage* g_msg, double recv_time) {
+int process_ground_message(FILE* log_fp, GroundMessage* g_msg,
+                           double recv_time) {
     char log_msg[2048];
     int b = 0;
 
@@ -92,31 +115,26 @@ int process_ground_message(GroundMessage* g_msg, double recv_time) {
                   g_msg->iteration);
 
     // logged time (when base picked it)
-    time_t logged_time = time(NULL);
-    struct tm* tm_logged = localtime(&logged_time);
     char display_dt_logged[64];
-    // %c = preferred locale format
-    strftime(display_dt_logged, sizeof(display_dt_logged), "%c", tm_logged);
+    format_to_datetime(time(NULL), display_dt_logged,
+                       sizeof(display_dt_logged));
     b += snprintf(log_msg + b, sizeof(log_msg) - b, "Logged time: %s\n",
                   display_dt_logged);
 
     // reported time (from ground)
-    time_t reported_time = (time_t)g_msg->time_since_epoch;
-    struct tm* tm_reported = localtime(&reported_time);
     char display_dt_reported[64];
-    strftime(display_dt_reported, sizeof(display_dt_reported), "%c",
-             tm_reported);
+    format_to_datetime(g_msg->time_since_epoch, display_dt_reported,
+                       sizeof(display_dt_reported));
     b += snprintf(log_msg + b, sizeof(log_msg) - b, "Reported time: %s\n",
                   display_dt_reported);
 
     SatelliteReading sr;
     int is_true_alert = compare_satellite_readings(g_msg, &sr);
-    if (is_true_alert) {
+    if (is_true_alert)
         b += snprintf(log_msg + b, sizeof(log_msg) - b, "Alert type: True\n\n");
-    } else {
+    else
         b +=
             snprintf(log_msg + b, sizeof(log_msg) - b, "Alert type: False\n\n");
-    }
 
     char coords_str[10];
     snprintf(coords_str, sizeof(coords_str), "(%d,%d)", g_msg->coords[0],
@@ -139,10 +157,9 @@ int process_ground_message(GroundMessage* g_msg, double recv_time) {
     b += snprintf(log_msg + b, sizeof(log_msg) - b, "\n");
 
     if (is_true_alert) {
-        struct tm* tm_satellite = localtime(&(sr.time_since_epoch));
         char display_dt_satellite[64];
-        strftime(display_dt_satellite, sizeof(display_dt_satellite), "%c",
-                 tm_satellite);
+        format_to_datetime(sr.time_since_epoch, display_dt_satellite,
+                           sizeof(display_dt_satellite));
         b += snprintf(log_msg + b, sizeof(log_msg) - b,
                       "Infrared satellite reporting time: %s\n",
                       display_dt_satellite);
@@ -159,6 +176,7 @@ int process_ground_message(GroundMessage* g_msg, double recv_time) {
 
     b += snprintf(log_msg + b, sizeof(log_msg) - b, "--------------------\n");
     printf("%s", log_msg);
+    fprintf(log_fp, "%s", log_msg);
 
     return is_true_alert;
 }
@@ -240,4 +258,9 @@ void generate_satellite_reading(SatelliteReading* sr, int rows, int cols) {
 int file_exists(const char* filename) {
     struct stat b;
     return stat(filename, &b) == 0;
+}
+
+int format_to_datetime(time_t t, char* out_buf, size_t out_buf_len) {
+    struct tm* tm = localtime(&t);
+    return strftime(out_buf, out_buf_len, "%c", tm);
 }

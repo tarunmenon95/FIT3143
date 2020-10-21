@@ -2,6 +2,7 @@
 #define BASE_H_INCLUDED
 
 #include <mpi.h>
+#include <stdio.h>
 #include <time.h>
 
 #include "common.h"
@@ -18,6 +19,7 @@ void* infrared_thread(void*);
 void generate_satellite_reading(SatelliteReading*, int, int);
 int file_exists(const char*);
 int compare_satellite_readings(GroundMessage*, SatelliteReading*);
-int process_ground_message(GroundMessage*, double);
+int process_ground_message(FILE*, GroundMessage*, double);
+int format_to_datetime(time_t, char*, size_t);
 
 #endif
