@@ -16,11 +16,6 @@ SatelliteReading infrared_readings[30];
 // flag to indicate whether thread should terminate
 int terminate = 0;
 
-int format_to_datetime(time_t t, char* out_buf, size_t out_buf_len) {
-    struct tm* tm = localtime(&t);
-    return strftime(out_buf, out_buf_len, "%c", tm);
-}
-
 void base_station(int base_station_world_rank, int max_iterations, int rows,
                   int cols, MPI_Datatype ground_message_type) {
     FILE* log_fp = fopen("base_station.log", "w");

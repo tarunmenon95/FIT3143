@@ -110,6 +110,5 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     }
     MPI_Wait(&bcast_req, MPI_STATUS_IGNORE);
 
-    printf("Rank %d (%d, %d) exiting\n", grid_rank, coords[0], coords[1]);
     MPI_Comm_free(&grid_comm);
 }
