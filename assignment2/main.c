@@ -13,6 +13,8 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
+    double mpi_start_wtime = MPI_Wtime();
+
     // unique seed per process
     srand(time(NULL) + (world_rank * 10));
 
@@ -72,9 +74,11 @@ int main(int argc, char* argv[]) {
     MPI_Comm split_comm;
     MPI_Comm_split(MPI_COMM_WORLD, world_rank == size - 1, 0, &split_comm);
     if (world_rank == size - 1) {
-        base_station(size - 1, max_iterations, rows, cols, ground_message_type);
+        base_station(size - 1, max_iterations, rows, cols, ground_message_type,
+                     mpi_start_wtime);
     } else {
-        ground_station(split_comm, size - 1, rows, cols, ground_message_type);
+        ground_station(split_comm, size - 1, rows, cols, ground_message_type,
+                       mpi_start_wtime);
     }
     MPI_Type_free(&ground_message_type);
     MPI_Comm_free(&split_comm);

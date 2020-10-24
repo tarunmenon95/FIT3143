@@ -17,7 +17,8 @@ SatelliteReading infrared_readings[30];
 int terminate = 0;
 
 void base_station(int base_station_world_rank, int max_iterations, int rows,
-                  int cols, MPI_Datatype ground_message_type) {
+                  int cols, MPI_Datatype ground_message_type,
+                  double mpi_start_wtime) {
     FILE* log_fp = fopen("base_station.log", "w");
     char init_msg[128];
     char init_msg_dt[64];
@@ -28,13 +29,16 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
     printf("%s", init_msg);
     fprintf(log_fp, "%s", init_msg);
 
-    double start_time, prog_start_time = MPI_Wtime();
-    int dimension_sizes[2] = {rows, cols};
+    double start_time;
     // doesn't matter what we send in bcast
     char buf = '\0';
     MPI_Request bcast_req;
+    SatelliteThreadArgs t_args;
+    t_args.rows = rows;
+    t_args.cols = cols;
+    t_args.mpi_start_wtime = mpi_start_wtime;
     pthread_t tid;
-    pthread_create(&tid, NULL, infrared_thread, (void*)dimension_sizes);
+    pthread_create(&tid, NULL, infrared_thread, (void*)&t_args);
     int messages_available;
     int iteration = 0, true_events = 0, false_events = 0;
     // if this file exists in pwd then terminate
@@ -42,7 +46,7 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
     // -1 means run forever (until sentinel)
     while ((max_iterations == -1 || iteration < max_iterations) &&
            !file_exists(sentinel_filename)) {
-        start_time = MPI_Wtime();
+        start_time = MPI_Wtime() - mpi_start_wtime;
 
         // check if a ground station has sent a message
         MPI_Iprobe(MPI_ANY_SOURCE, EVENT_MSG_TAG, MPI_COMM_WORLD,
@@ -52,7 +56,7 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
             GroundMessage g_msg;
             MPI_Recv(&g_msg, 1, ground_message_type, MPI_ANY_SOURCE,
                      EVENT_MSG_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            double recv_time = MPI_Wtime();
+            double recv_time = MPI_Wtime() - mpi_start_wtime;
 
             int is_true_alert =
                 process_ground_message(log_fp, &g_msg, recv_time);
@@ -64,7 +68,8 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
                        &messages_available, MPI_STATUS_IGNORE);
         }
 
-        sleep_until_interval(start_time, INTERVAL_MILLISECONDS);
+        sleep_until_interval(start_time, INTERVAL_MILLISECONDS,
+                             mpi_start_wtime);
         ++iteration;
     }
 
@@ -78,7 +83,7 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
     MPI_Wait(&bcast_req, MPI_STATUS_IGNORE);
     pthread_join(tid, NULL);
 
-    double prog_duration_seconds = MPI_Wtime() - prog_start_time;
+    double prog_duration_seconds = MPI_Wtime() - mpi_start_wtime;
 
     char end_msg[256];
     int end_msg_len = 0;
@@ -216,37 +221,42 @@ int compare_satellite_readings(GroundMessage* g_msg, SatelliteReading* out_sr) {
 
 void* infrared_thread(void* arg) {
     double start_time;
-    int* dimensions = (int*)arg;
-    int rows = dimensions[0];
-    int cols = dimensions[1];
+    SatelliteThreadArgs* t_args = (SatelliteThreadArgs*)arg;
+    int rows = t_args->rows;
+    int cols = t_args->cols;
+    double mpi_start_wtime = t_args->mpi_start_wtime;
     size_t i_read_size = sizeof(infrared_readings) / sizeof(*infrared_readings);
     // pointer to next spot to replace in infrared_readings array
     int infrared_readings_latest = 0;
 
     // prefill the array
     for (size_t i = 0; i < i_read_size; ++i)
-        generate_satellite_reading(&infrared_readings[i], rows, cols);
+        generate_satellite_reading(&infrared_readings[i], rows, cols,
+                                   mpi_start_wtime);
 
     while (!terminate) {
         // every half interval, generate a new satellite reading
-        start_time = MPI_Wtime();
+        start_time = MPI_Wtime() - mpi_start_wtime;
 
         generate_satellite_reading(
-            &infrared_readings[infrared_readings_latest++], rows, cols);
+            &infrared_readings[infrared_readings_latest++], rows, cols,
+            mpi_start_wtime);
         // point to oldest reading to update (act like queue)
         // will wrap around at end to prevent going beyond bounds
         infrared_readings_latest %= (int)i_read_size;
 
-        sleep_until_interval(start_time, INTERVAL_MILLISECONDS / 2);
+        sleep_until_interval(start_time, INTERVAL_MILLISECONDS / 2,
+                             mpi_start_wtime);
     }
     return arg;
 }
 
-void generate_satellite_reading(SatelliteReading* sr, int rows, int cols) {
+void generate_satellite_reading(SatelliteReading* sr, int rows, int cols,
+                                double mpi_start_wtime) {
     sr->reading = rand() % (1 + MAX_READING_VALUE);
     sr->coords[0] = rand() % rows;
     sr->coords[1] = rand() % cols;
-    sr->mpi_time = MPI_Wtime();
+    sr->mpi_time = MPI_Wtime() - mpi_start_wtime;
     sr->time_since_epoch = time(NULL);
 }
 

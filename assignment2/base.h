@@ -14,9 +14,15 @@ typedef struct {
     time_t time_since_epoch;
 } SatelliteReading;
 
-void base_station(int, int, int, int, MPI_Datatype);
+typedef struct {
+    int rows;
+    int cols;
+    float mpi_start_wtime;
+} SatelliteThreadArgs;
+
+void base_station(int, int, int, int, MPI_Datatype, double);
 void* infrared_thread(void*);
-void generate_satellite_reading(SatelliteReading*, int, int);
+void generate_satellite_reading(SatelliteReading*, int, int, double);
 int file_exists(const char*);
 int compare_satellite_readings(GroundMessage*, SatelliteReading*);
 int process_ground_message(FILE*, GroundMessage*, double);

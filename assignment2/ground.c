@@ -8,7 +8,8 @@
 #include "common.h"
 
 void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
-                    int cols, MPI_Datatype ground_message_type) {
+                    int cols, MPI_Datatype ground_message_type,
+                    double mpi_start_wtime) {
     int grid_dimensions = 2;
     int dimension_sizes[2] = {rows, cols};
     MPI_Comm grid_comm;
@@ -50,7 +51,7 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
                &bcast_req);
     int bcast_received = 0;
     while (!bcast_received) {
-        start_time = MPI_Wtime();
+        start_time = MPI_Wtime() - mpi_start_wtime;
 
         // clear neighbour readings each iteration
         for (int i = 0; i < 4; ++i) neighbour_readings[i] = -1;
@@ -93,7 +94,7 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             msg.time_since_epoch = (long)time(NULL);
 
             if (matching_neighbours >= 2) {
-                msg.mpi_time = MPI_Wtime();
+                msg.mpi_time = MPI_Wtime() - mpi_start_wtime;
                 // event with at least 2 matching neighbours, send to base
                 // (should ideally) buffer hence won't block
                 MPI_Send(&msg, 1, ground_message_type, base_station_world_rank,
@@ -101,7 +102,8 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             }
         }
 
-        sleep_until_interval(start_time, INTERVAL_MILLISECONDS);
+        sleep_until_interval(start_time, INTERVAL_MILLISECONDS,
+                             mpi_start_wtime);
         // fix sync issue...
         // in case one proc gets ahead and subsequently blocks at gather
         MPI_Barrier(grid_comm);

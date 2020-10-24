@@ -26,10 +26,11 @@ void create_ground_message_type(MPI_Datatype* ground_message_type) {
     MPI_Type_commit(ground_message_type);
 }
 
-void sleep_until_interval(double start_time, int interval_ms) {
+void sleep_until_interval(double start_time, int interval_ms,
+                          double mpi_start_wtime) {
     // sleep until interval_ms has passed since start_time
     struct timespec ts;
-    double end_time = MPI_Wtime();
+    double end_time = MPI_Wtime() - mpi_start_wtime;
     double sleep_length =
         (start_time + ((double)interval_ms / 1000) - end_time) *
         SECONDS_TO_NANOSECONDS;

@@ -17,7 +17,7 @@
 #define EVENT_MSG_TAG 0
 
 void create_ground_message_type(MPI_Datatype*);
-void sleep_until_interval(double, int);
+void sleep_until_interval(double, int, double);
 
 typedef struct {
     int iteration;
