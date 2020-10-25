@@ -32,6 +32,8 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     int neighbour_readings[4];
     int neighbour_ranks[4];
     int neighbour_coords[4][2];
+    unsigned char neighbour_ip_addrs[4][4];
+    unsigned char neighbour_mac_addrs[4][6];
     // get ranks of neighbours (according to grid_comm)
     MPI_Cart_shift(grid_comm, 0, 1, &neighbour_ranks[0],
                    &neighbour_ranks[1]);  // top, bottom
@@ -51,14 +53,15 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
                &bcast_req);
     int bcast_received = 0;
 
-    uint32_t ip_addr;
-    unsigned char* tmp_b;
+    unsigned char ip_addr[4];
     unsigned char mac_addr[6];
-    get_device_addresses(&ip_addr, mac_addr);
-    tmp_b = (unsigned char*)&ip_addr;
-    printf("%d| %d.%d.%d.%d | %02x:%02x:%02x:%02x:%02x:%02x\n", grid_rank,
-           tmp_b[0], tmp_b[1], tmp_b[2], tmp_b[3], mac_addr[0], mac_addr[1],
-           mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+    if (!get_device_addresses(ip_addr, mac_addr)) MPI_Abort(MPI_COMM_WORLD, 1);
+
+    // get neighbour IP and MAC addresses
+    MPI_Neighbor_allgather(ip_addr, 4, MPI_UNSIGNED_CHAR, neighbour_ip_addrs, 4,
+                           MPI_UNSIGNED_CHAR, grid_comm);
+    MPI_Neighbor_allgather(mac_addr, 6, MPI_UNSIGNED_CHAR, neighbour_mac_addrs,
+                           6, MPI_UNSIGNED_CHAR, grid_comm);
 
     while (!bcast_received) {
         start_time = MPI_Wtime() - mpi_start_wtime;
@@ -78,6 +81,8 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             msg.rank = grid_rank;
             msg.coords[0] = coords[0];
             msg.coords[1] = coords[1];
+            for (int i = 0; i < 4; ++i) msg.ip_addr[i] = ip_addr[i];
+            for (int i = 0; i < 6; ++i) msg.mac_addr[i] = mac_addr[i];
 
             int matching_neighbours = 0;
             // check neighbours
@@ -89,12 +94,23 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
                     // fill in their data
                     msg.neighbour_ranks[matching_neighbours] =
                         neighbour_ranks[i];
+
                     msg.neighbour_coords[matching_neighbours][0] =
                         neighbour_coords[i][0];
                     msg.neighbour_coords[matching_neighbours][1] =
                         neighbour_coords[i][1];
+
                     msg.neighbour_readings[matching_neighbours] =
                         neighbour_readings[i];
+
+                    for (int j = 0; j < 4; ++j)
+                        msg.neighbour_ip_addrs[matching_neighbours][j] =
+                            neighbour_ip_addrs[i][j];
+
+                    for (int j = 0; j < 6; ++j)
+                        msg.neighbour_mac_addrs[matching_neighbours][j] =
+                            neighbour_mac_addrs[i][j];
+
                     ++matching_neighbours;
                 }
             }

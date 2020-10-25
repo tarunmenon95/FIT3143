@@ -128,6 +128,7 @@ int process_ground_message(FILE* log_fp, GroundMessage* g_msg,
     b += snprintf(log_msg + b, sizeof(log_msg) - b, "Reported time: %s\n",
                   display_dt_reported);
 
+    // true or false event
     SatelliteReading sr;
     int is_true_alert = compare_satellite_readings(g_msg, &sr);
     if (is_true_alert)
@@ -136,26 +137,38 @@ int process_ground_message(FILE* log_fp, GroundMessage* g_msg,
         b +=
             snprintf(log_msg + b, sizeof(log_msg) - b, "Alert type: False\n\n");
 
+    // print details of reporting station
     char coords_str[10];
+    char ip_str[20];
+    char mac_str[20];
     snprintf(coords_str, sizeof(coords_str), "(%d,%d)", g_msg->coords[0],
              g_msg->coords[1]);
-    b += snprintf(log_msg + b, sizeof(log_msg) - b, "%-26s %-10s %-10s\n",
-                  "Reporting node", "Coords", "Temp");
-    b += snprintf(log_msg + b, sizeof(log_msg) - b, "%-26d %-10s %-10d\n\n",
-                  g_msg->rank, coords_str, g_msg->reading);
+    format_ip_addr(g_msg->ip_addr, ip_str);
+    format_mac_addr(g_msg->mac_addr, mac_str);
+    b += snprintf(log_msg + b, sizeof(log_msg) - b,
+                  "%-26s %-10s %-10s %-20s %-20s\n", "Reporting node", "Coords",
+                  "Temp", "IP Address", "MAC Address");
+    b += snprintf(log_msg + b, sizeof(log_msg) - b,
+                  "%-26d %-10s %-10d %-20s %-20s\n\n", g_msg->rank, coords_str,
+                  g_msg->reading, ip_str, mac_str);
 
-    b += snprintf(log_msg + b, sizeof(log_msg) - b, "%-26s %-10s %-10s\n",
-                  "Matching adjacent nodes", "Coords", "Temp");
+    b += snprintf(log_msg + b, sizeof(log_msg) - b,
+                  "%-26s %-10s %-10s %-20s %-20s\n", "Matching adjacent nodes",
+                  "Coords", "Temp", "IP Address", "MAC Address");
+    // print details of neighbours to the reporting station
     for (int i = 0; i < g_msg->matching_neighbours; ++i) {
-        char n_coords_str[10];
-        snprintf(n_coords_str, sizeof(n_coords_str), "(%d,%d)",
+        format_ip_addr(g_msg->neighbour_ip_addrs[i], ip_str);
+        format_mac_addr(g_msg->neighbour_mac_addrs[i], mac_str);
+        snprintf(coords_str, sizeof(coords_str), "(%d,%d)",
                  g_msg->neighbour_coords[i][0], g_msg->neighbour_coords[i][1]);
-        b += snprintf(log_msg + b, sizeof(log_msg) - b, "%-26d %-10s %-10d\n",
-                      g_msg->neighbour_ranks[i], n_coords_str,
-                      g_msg->neighbour_readings[i]);
+        b += snprintf(log_msg + b, sizeof(log_msg) - b,
+                      "%-26d %-10s %-10d %-20s %-20s\n",
+                      g_msg->neighbour_ranks[i], coords_str,
+                      g_msg->neighbour_readings[i], ip_str, mac_str);
     }
     b += snprintf(log_msg + b, sizeof(log_msg) - b, "\n");
 
+    // if true alert then also print satellite reading
     if (is_true_alert) {
         char display_dt_satellite[64];
         format_to_datetime(sr.time_since_epoch, display_dt_satellite,
