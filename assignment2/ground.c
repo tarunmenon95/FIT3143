@@ -18,6 +18,8 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     MPI_Cart_create(split_comm, grid_dimensions, dimension_sizes, periods,
                     reorder, &grid_comm);
 
+    get_mac_address();
+
     double start_time;
     int iteration = 0;
     char buf = '\0';

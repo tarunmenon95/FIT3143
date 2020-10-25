@@ -18,6 +18,7 @@
 
 void create_ground_message_type(MPI_Datatype*);
 void sleep_until_interval(double, int, double);
+void get_mac_address();
 
 typedef struct {
     int iteration;

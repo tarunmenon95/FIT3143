@@ -1,9 +1,15 @@
 #include "common.h"
 
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <linux/if.h>
 #include <mpi.h>
+#include <netpacket/packet.h>
+#include <stdio.h>
+#include <sys/socket.h>
 #include <time.h>
 
-void create_ground_message_type(MPI_Datatype* ground_message_type) {
+void create_ground_message_type(MPI_Datatype *ground_message_type) {
     // create MPI datatype for GroundMessage
     int no_of_fields = 10;
     int block_lengths[10] = {1, 1, 1, 2, 1, 4, 4 * 2, 4, 1, 1};
@@ -37,4 +43,40 @@ void sleep_until_interval(double start_time, int interval_ms,
     ts.tv_sec = 0;
     ts.tv_nsec = (long)sleep_length;
     nanosleep(&ts, NULL);
+}
+
+void get_mac_address() {
+    // MAC: https://stackoverflow.com/a/35242525
+    // IP: https://stackoverflow.com/a/4139893
+    struct ifaddrs *ifaddr = NULL;
+    struct ifaddrs *ifa = NULL;
+    int i = 0;
+
+    if (getifaddrs(&ifaddr) == -1) {
+        printf("MAC error\n");
+        return;
+    } else {
+        for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+            // MAC
+            if ((ifa->ifa_addr) && (ifa->ifa_addr->sa_family == AF_PACKET) &&
+                !(ifa->ifa_flags & IFF_LOOPBACK)) {
+                struct sockaddr_ll *s = (struct sockaddr_ll *)ifa->ifa_addr;
+                printf("%-8s ", ifa->ifa_name);
+                for (i = 0; i < s->sll_halen; i++) {
+                    printf("%02x%c", (s->sll_addr[i]),
+                           (i + 1 != s->sll_halen) ? ':' : '\n');
+                }
+            }
+            // IP
+            if ((ifa->ifa_addr) && (ifa->ifa_addr->sa_family == AF_INET) &&
+                !(ifa->ifa_flags & IFF_LOOPBACK)) {
+                struct sockaddr_in *sa;
+                char *addr;
+                sa = (struct sockaddr_in *)ifa->ifa_addr;
+                addr = inet_ntoa(sa->sin_addr);
+                printf("Interface: %s\tAddress: %s\n", ifa->ifa_name, addr);
+            }
+        }
+        freeifaddrs(ifaddr);
+    }
 }
