@@ -9,7 +9,7 @@
 // what constitutes an event reading
 #define READING_THRESHOLD 80  // 80
 // allowable absolute diff b/w readings
-#define READING_DIFFERENCE 25  // 5
+#define READING_DIFFERENCE 10  // 5
 // allowable absolute diff b/w mpi times for event & thread reading
 #define MPI_TIME_DIFF_MILLISECONDS 100
 #define MAX_READING_VALUE 100
