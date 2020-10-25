@@ -17,7 +17,7 @@ typedef struct {
 typedef struct {
     int rows;
     int cols;
-    float mpi_start_wtime;
+    double mpi_start_wtime;
 } SatelliteThreadArgs;
 
 void base_station(int, int, int, int, MPI_Datatype, double);
