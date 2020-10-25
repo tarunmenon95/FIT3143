@@ -87,7 +87,7 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
 
     char end_msg[256];
     int end_msg_len = 0;
-    if (iteration >= max_iterations) {
+    if (!file_exists(sentinel_filename)) {
         end_msg_len +=
             snprintf(end_msg, sizeof(end_msg),
                      "\n%d iterations reached, terminating\n", iteration);

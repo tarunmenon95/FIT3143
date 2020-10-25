@@ -7,11 +7,11 @@
 // can vary these
 #define INTERVAL_MILLISECONDS 200
 // what constitutes an event reading
-#define READING_THRESHOLD 80  // 80
+#define READING_THRESHOLD 80
 // allowable absolute diff b/w readings
-#define READING_DIFFERENCE 10  // 5
+#define READING_DIFFERENCE 10
 // allowable absolute diff b/w mpi times for event & thread reading
-#define MPI_TIME_DIFF_MILLISECONDS 100
+#define MPI_TIME_DIFF_MILLISECONDS 150
 #define MAX_READING_VALUE 100
 // don't vary these
 #define SECONDS_TO_NANOSECONDS 1000000000
