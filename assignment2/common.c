@@ -6,6 +6,7 @@
 #include <mpi.h>
 #include <netpacket/packet.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <time.h>
 
@@ -52,6 +53,9 @@ int get_device_addresses(uint32_t *ip_addr, unsigned char mac_addr[6]) {
     struct sockaddr_ll *mac_a;
     struct sockaddr_in *ip_a;
     char ip_flg = 0, mac_flg = 0;
+    char *preferred_names[] = {"eth0", "enp0s3"};
+    size_t preferred_names_len =
+        sizeof(preferred_names) / sizeof(*preferred_names);
 
     // get linked list of network interfaces
     if (getifaddrs(&ifaddr) == -1) return 0;
@@ -61,14 +65,18 @@ int get_device_addresses(uint32_t *ip_addr, unsigned char mac_addr[6]) {
         // has to have an address, and not be the loopback device
         if (!(ifa->ifa_addr) || (ifa->ifa_flags & IFF_LOOPBACK)) continue;
 
+        int matching_name = 0;
+        for (size_t i = 0; i < preferred_names_len; ++i)
+            if (!strcmp(ifa->ifa_name, preferred_names[i])) matching_name = 1;
+
+        if (!matching_name) continue;
+
         switch (ifa->ifa_addr->sa_family) {
             case AF_PACKET:  // MAC address
                 mac_a = (struct sockaddr_ll *)ifa->ifa_addr;
                 if (mac_a->sll_halen != 6) break;
-                for (int i = 0; i < mac_a->sll_halen; i++) {
+                for (int i = 0; i < 6; ++i) {
                     mac_addr[i] = mac_a->sll_addr[i];
-                    // printf("%02x%c", (mac_a->sll_addr[i]),
-                    //      (i + 1 != mac_a->sll_halen) ? ':' : '\n');
                 }
                 mac_flg = 1;
                 break;
