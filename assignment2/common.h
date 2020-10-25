@@ -2,6 +2,7 @@
 #define COMMON_H_INCLUDED
 
 #include <mpi.h>
+#include <stdint.h>
 
 // can vary these
 #define INTERVAL_MILLISECONDS 500
@@ -18,7 +19,7 @@
 
 void create_ground_message_type(MPI_Datatype*);
 void sleep_until_interval(double, int, double);
-void get_mac_address();
+int get_device_addresses(uint32_t*, unsigned char[6]);
 
 typedef struct {
     int iteration;

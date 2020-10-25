@@ -45,38 +45,40 @@ void sleep_until_interval(double start_time, int interval_ms,
     nanosleep(&ts, NULL);
 }
 
-void get_mac_address() {
+int get_device_addresses(uint32_t *ip_addr, unsigned char mac_addr[6]) {
     // MAC: https://stackoverflow.com/a/35242525
     // IP: https://stackoverflow.com/a/4139893
-    struct ifaddrs *ifaddr = NULL;
-    struct ifaddrs *ifa = NULL;
-    int i = 0;
+    struct ifaddrs *ifaddr, *ifa;
+    struct sockaddr_ll *mac_a;
+    struct sockaddr_in *ip_a;
+    char ip_flg = 0, mac_flg = 0;
 
-    if (getifaddrs(&ifaddr) == -1) {
-        printf("MAC error\n");
-        return;
-    } else {
-        for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-            // MAC
-            if ((ifa->ifa_addr) && (ifa->ifa_addr->sa_family == AF_PACKET) &&
-                !(ifa->ifa_flags & IFF_LOOPBACK)) {
-                struct sockaddr_ll *s = (struct sockaddr_ll *)ifa->ifa_addr;
-                printf("%-8s ", ifa->ifa_name);
-                for (i = 0; i < s->sll_halen; i++) {
-                    printf("%02x%c", (s->sll_addr[i]),
-                           (i + 1 != s->sll_halen) ? ':' : '\n');
+    // get linked list of network interfaces
+    if (getifaddrs(&ifaddr) == -1) return 0;
+
+    // traverse linked list
+    for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        // has to have an address, and not be the loopback device
+        if (!(ifa->ifa_addr) || (ifa->ifa_flags & IFF_LOOPBACK)) continue;
+
+        switch (ifa->ifa_addr->sa_family) {
+            case AF_PACKET:  // MAC address
+                mac_a = (struct sockaddr_ll *)ifa->ifa_addr;
+                if (mac_a->sll_halen != 6) break;
+                for (int i = 0; i < mac_a->sll_halen; i++) {
+                    mac_addr[i] = mac_a->sll_addr[i];
+                    // printf("%02x%c", (mac_a->sll_addr[i]),
+                    //      (i + 1 != mac_a->sll_halen) ? ':' : '\n');
                 }
-            }
-            // IP
-            if ((ifa->ifa_addr) && (ifa->ifa_addr->sa_family == AF_INET) &&
-                !(ifa->ifa_flags & IFF_LOOPBACK)) {
-                struct sockaddr_in *sa;
-                char *addr;
-                sa = (struct sockaddr_in *)ifa->ifa_addr;
-                addr = inet_ntoa(sa->sin_addr);
-                printf("Interface: %s\tAddress: %s\n", ifa->ifa_name, addr);
-            }
+                mac_flg = 1;
+                break;
+            case AF_INET:  // IP address
+                ip_a = (struct sockaddr_in *)ifa->ifa_addr;
+                *ip_addr = ip_a->sin_addr.s_addr;
+                ip_flg = 1;
+                break;
         }
-        freeifaddrs(ifaddr);
     }
+    freeifaddrs(ifaddr);
+    return ip_flg && mac_flg;
 }

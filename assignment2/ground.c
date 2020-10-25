@@ -18,8 +18,6 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     MPI_Cart_create(split_comm, grid_dimensions, dimension_sizes, periods,
                     reorder, &grid_comm);
 
-    get_mac_address();
-
     double start_time;
     int iteration = 0;
     char buf = '\0';
@@ -52,6 +50,16 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     MPI_Ibcast(&buf, 1, MPI_CHAR, base_station_world_rank, MPI_COMM_WORLD,
                &bcast_req);
     int bcast_received = 0;
+
+    uint32_t ip_addr;
+    unsigned char* tmp_b;
+    unsigned char mac_addr[6];
+    get_device_addresses(&ip_addr, mac_addr);
+    tmp_b = (unsigned char*)&ip_addr;
+    printf("%d| %d.%d.%d.%d | %02x:%02x:%02x:%02x:%02x:%02x\n", grid_rank,
+           tmp_b[0], tmp_b[1], tmp_b[2], tmp_b[3], mac_addr[0], mac_addr[1],
+           mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+
     while (!bcast_received) {
         start_time = MPI_Wtime() - mpi_start_wtime;
 
