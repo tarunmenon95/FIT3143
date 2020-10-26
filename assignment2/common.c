@@ -12,14 +12,14 @@
 void create_ground_message_type(MPI_Datatype *ground_message_type) {
     // create MPI datatype for GroundMessage
     int no_of_fields = 14;
-    int block_lengths[14] = {1, 1, 1, 2, 1,     4, 4 * 2,
+    int block_lengths[14] = {1, 1, 1, 1, 2,     4, 4 * 2,
                              4, 1, 1, 4, 4 * 4, 6, 4 * 6};
     MPI_Aint displacements[14];
     displacements[0] = offsetof(GroundMessage, iteration);
     displacements[1] = offsetof(GroundMessage, reading);
     displacements[2] = offsetof(GroundMessage, rank);
-    displacements[3] = offsetof(GroundMessage, coords);
-    displacements[4] = offsetof(GroundMessage, matching_neighbours);
+    displacements[3] = offsetof(GroundMessage, matching_neighbours);
+    displacements[4] = offsetof(GroundMessage, coords);
     displacements[5] = offsetof(GroundMessage, neighbour_ranks);
     displacements[6] = offsetof(GroundMessage, neighbour_coords);
     displacements[7] = offsetof(GroundMessage, neighbour_readings);

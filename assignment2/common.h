@@ -27,8 +27,8 @@ typedef struct {
     int iteration;
     int reading;
     int rank;
-    int coords[2];
     int matching_neighbours;  // size of neighbour_* arrs
+    int coords[2];
     int neighbour_ranks[4];
     int neighbour_coords[4][2];
     int neighbour_readings[4];
