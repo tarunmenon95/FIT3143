@@ -3,6 +3,7 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "common.h"
@@ -68,6 +69,7 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
 
         // clear neighbour readings each iteration
         for (int i = 0; i < 4; ++i) neighbour_readings[i] = -1;
+
         reading = rand() % (1 + MAX_READING_VALUE);
         // gather readings from neighbours
         MPI_Neighbor_allgather(&reading, 1, MPI_INT, neighbour_readings, 1,
@@ -79,10 +81,10 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             msg.iteration = iteration;
             msg.reading = reading;
             msg.rank = grid_rank;
-            msg.coords[0] = coords[0];
-            msg.coords[1] = coords[1];
-            for (int i = 0; i < 4; ++i) msg.ip_addr[i] = ip_addr[i];
-            for (int i = 0; i < 6; ++i) msg.mac_addr[i] = mac_addr[i];
+
+            memcpy(msg.coords, coords, 2 * sizeof(int));
+            memcpy(msg.ip_addr, ip_addr, 4 * sizeof(unsigned char));
+            memcpy(msg.mac_addr, mac_addr, 6 * sizeof(unsigned char));
 
             int matching_neighbours = 0;
             // check neighbours
@@ -95,21 +97,16 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
                     msg.neighbour_ranks[matching_neighbours] =
                         neighbour_ranks[i];
 
-                    msg.neighbour_coords[matching_neighbours][0] =
-                        neighbour_coords[i][0];
-                    msg.neighbour_coords[matching_neighbours][1] =
-                        neighbour_coords[i][1];
+                    memcpy(msg.neighbour_coords[matching_neighbours],
+                           neighbour_coords[i], 2 * sizeof(int));
 
                     msg.neighbour_readings[matching_neighbours] =
                         neighbour_readings[i];
 
-                    for (int j = 0; j < 4; ++j)
-                        msg.neighbour_ip_addrs[matching_neighbours][j] =
-                            neighbour_ip_addrs[i][j];
-
-                    for (int j = 0; j < 6; ++j)
-                        msg.neighbour_mac_addrs[matching_neighbours][j] =
-                            neighbour_mac_addrs[i][j];
+                    memcpy(msg.neighbour_ip_addrs[matching_neighbours],
+                           neighbour_ip_addrs[i], 4 * sizeof(unsigned char));
+                    memcpy(msg.neighbour_mac_addrs[matching_neighbours],
+                           neighbour_mac_addrs[i], 6 * sizeof(unsigned char));
 
                     ++matching_neighbours;
                 }

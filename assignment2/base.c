@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <time.h>
 
@@ -204,8 +205,7 @@ int compare_satellite_readings(GroundMessage* g_msg, SatelliteReading* out_sr) {
     while (i < i_read_size && !found_reading) {
         // copy to a local incase thread overwrites
         sr.reading = infrared_readings[i].reading;
-        sr.coords[0] = infrared_readings[i].coords[0];
-        sr.coords[1] = infrared_readings[i].coords[1];
+        memcpy(sr.coords, infrared_readings[i].coords, 2 * sizeof(int));
         sr.mpi_time = infrared_readings[i].mpi_time;
         sr.time_since_epoch = infrared_readings[i].time_since_epoch;
 
@@ -223,8 +223,7 @@ int compare_satellite_readings(GroundMessage* g_msg, SatelliteReading* out_sr) {
 
     if (found_reading) {
         out_sr->reading = sr.reading;
-        out_sr->coords[0] = sr.coords[0];
-        out_sr->coords[1] = sr.coords[1];
+        memcpy(out_sr->coords, sr.coords, 2 * sizeof(int));
         out_sr->mpi_time = sr.mpi_time;
         out_sr->time_since_epoch = sr.time_since_epoch;
     }

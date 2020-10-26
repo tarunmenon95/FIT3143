@@ -83,13 +83,13 @@ int get_device_addresses(unsigned char ip_addr[4], unsigned char mac_addr[6]) {
             case AF_PACKET:  // MAC address
                 mac_a = (struct sockaddr_ll *)ifa->ifa_addr;
                 if (mac_a->sll_halen != 6) break;
-                for (int i = 0; i < 6; ++i) mac_addr[i] = mac_a->sll_addr[i];
+                memcpy(mac_addr, mac_a->sll_addr, 6 * sizeof(unsigned char));
                 mac_flg = 1;
                 break;
             case AF_INET:  // IP address
                 ip_a = (struct sockaddr_in *)ifa->ifa_addr;
                 tmp_ip_addr = (unsigned char *)&ip_a->sin_addr.s_addr;
-                for (int i = 0; i < 4; ++i) ip_addr[i] = tmp_ip_addr[i];
+                memcpy(ip_addr, tmp_ip_addr, 4 * sizeof(unsigned char));
                 ip_flg = 1;
                 break;
         }
