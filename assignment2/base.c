@@ -24,6 +24,7 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
                   int cols, MPI_Datatype ground_message_type,
                   double mpi_start_wtime) {
     FILE* log_fp = fopen("base_station.log", "w");
+    // initial log msg
     char init_msg[128];
     char init_msg_dt[64];
     format_to_datetime(time(NULL), init_msg_dt, sizeof(init_msg_dt));
@@ -37,11 +38,13 @@ void base_station(int base_station_world_rank, int max_iterations, int rows,
     // doesn't matter what we send in bcast
     char buf = '\0';
     MPI_Request bcast_req;
+    // info the thread needs
     SatelliteThreadArgs t_args;
     t_args.rows = rows;
     t_args.cols = cols;
     t_args.mpi_start_wtime = mpi_start_wtime;
     pthread_t tid;
+    // spin up infrared thread
     pthread_create(&tid, NULL, infrared_thread, (void*)&t_args);
     int messages_available;
     int iteration = 0, true_events = 0, false_events = 0;
@@ -218,6 +221,7 @@ int compare_satellite_readings(GroundMessage* g_msg, SatelliteReading* out_sr) {
 
         found_reading = matching_coords && matching_reading && matching_time;
 
+        // if match found, copy this match out
         if (found_reading) {
             memcpy(out_sr, infrared_readings + i, sizeof(*out_sr));
         }
@@ -249,11 +253,10 @@ void* infrared_thread(void* arg) {
         // every half interval, generate a new satellite reading
         start_time = MPI_Wtime() - mpi_start_wtime;
 
+        // lock when writing for specific index
         pthread_mutex_lock(mutex_arr + infrared_readings_latest);
-
         generate_satellite_reading(infrared_readings + infrared_readings_latest,
                                    rows, cols, mpi_start_wtime);
-
         pthread_mutex_unlock(mutex_arr + infrared_readings_latest);
 
         // point to oldest reading to update (act like queue)
