@@ -13,6 +13,9 @@
 
 // global arr for thread to store its satellite readings
 SatelliteReading infrared_readings[30];
+// mutex per arr entry because we're fancy
+// (really though it is for more granular locking)
+pthread_mutex_t mutex_arr[30] = {PTHREAD_MUTEX_INITIALIZER};
 
 // flag to indicate whether thread should terminate
 int terminate = 0;
@@ -196,36 +199,32 @@ int process_ground_message(FILE* log_fp, GroundMessage* g_msg,
 }
 
 int compare_satellite_readings(GroundMessage* g_msg, SatelliteReading* out_sr) {
-    SatelliteReading sr;
-
     size_t i = 0;
     int found_reading = 0;
     size_t i_read_size = sizeof(infrared_readings) / sizeof(*infrared_readings);
 
     while (i < i_read_size && !found_reading) {
-        // copy to a local incase thread overwrites
-        sr.reading = infrared_readings[i].reading;
-        memcpy(sr.coords, infrared_readings[i].coords, 2 * sizeof(int));
-        sr.mpi_time = infrared_readings[i].mpi_time;
-        sr.time_since_epoch = infrared_readings[i].time_since_epoch;
+        // lock mutex when comparing
+        pthread_mutex_lock(mutex_arr + i);
 
-        int matching_coords = sr.coords[0] == g_msg->coords[0] &&
-                              sr.coords[1] == g_msg->coords[1];
-        int matching_reading =
-            abs(sr.reading - g_msg->reading) <= READING_DIFFERENCE;
-        int matching_time = fabs(sr.mpi_time - g_msg->mpi_time) <=
-                            (double)MPI_TIME_DIFF_MILLISECONDS / 1000;
+        int matching_coords =
+            infrared_readings[i].coords[0] == g_msg->coords[0] &&
+            infrared_readings[i].coords[1] == g_msg->coords[1];
+        int matching_reading = abs(infrared_readings[i].reading -
+                                   g_msg->reading) <= READING_DIFFERENCE;
+        int matching_time =
+            fabs(infrared_readings[i].mpi_time - g_msg->mpi_time) <=
+            (double)MPI_TIME_DIFF_MILLISECONDS / 1000;
 
         found_reading = matching_coords && matching_reading && matching_time;
 
-        ++i;
-    }
+        if (found_reading) {
+            memcpy(out_sr, infrared_readings + i, sizeof(*out_sr));
+        }
 
-    if (found_reading) {
-        out_sr->reading = sr.reading;
-        memcpy(out_sr->coords, sr.coords, 2 * sizeof(int));
-        out_sr->mpi_time = sr.mpi_time;
-        out_sr->time_since_epoch = sr.time_since_epoch;
+        pthread_mutex_unlock(mutex_arr + i);
+
+        ++i;
     }
 
     return found_reading;
@@ -239,23 +238,28 @@ void* infrared_thread(void* arg) {
     double mpi_start_wtime = t_args->mpi_start_wtime;
     size_t i_read_size = sizeof(infrared_readings) / sizeof(*infrared_readings);
     // pointer to next spot to replace in infrared_readings array
-    int infrared_readings_latest = 0;
+    size_t infrared_readings_latest = 0;
 
     // prefill the array
     for (size_t i = 0; i < i_read_size; ++i)
-        generate_satellite_reading(&infrared_readings[i], rows, cols,
+        generate_satellite_reading(infrared_readings + i, rows, cols,
                                    mpi_start_wtime);
 
     while (!terminate) {
         // every half interval, generate a new satellite reading
         start_time = MPI_Wtime() - mpi_start_wtime;
 
-        generate_satellite_reading(
-            &infrared_readings[infrared_readings_latest++], rows, cols,
-            mpi_start_wtime);
+        pthread_mutex_lock(mutex_arr + infrared_readings_latest);
+
+        generate_satellite_reading(infrared_readings + infrared_readings_latest,
+                                   rows, cols, mpi_start_wtime);
+
+        pthread_mutex_unlock(mutex_arr + infrared_readings_latest);
+
         // point to oldest reading to update (act like queue)
         // will wrap around at end to prevent going beyond bounds
-        infrared_readings_latest %= (int)i_read_size;
+        ++infrared_readings_latest;
+        infrared_readings_latest %= i_read_size;
 
         sleep_until_interval(start_time, INTERVAL_MILLISECONDS / 2,
                              mpi_start_wtime);
