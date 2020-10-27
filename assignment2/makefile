@@ -1,7 +1,7 @@
 # C compiler
 CC = mpicc
 # compiler flags
-CFLAGS = -g -Wall
+CFLAGS = -g -Wall -std=c99 -D_POSIX_C_SOURCE=199309L
 LIBS = -lm -pthread
 
 TARGET = prog

@@ -3,12 +3,14 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "common.h"
 
 void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
-                    int cols, MPI_Datatype ground_message_type) {
+                    int cols, MPI_Datatype ground_message_type,
+                    double mpi_start_wtime) {
     int grid_dimensions = 2;
     int dimension_sizes[2] = {rows, cols};
     MPI_Comm grid_comm;
@@ -31,6 +33,8 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     int neighbour_readings[4];
     int neighbour_ranks[4];
     int neighbour_coords[4][2];
+    unsigned char neighbour_ip_addrs[4][4];
+    unsigned char neighbour_mac_addrs[4][6];
     // get ranks of neighbours (according to grid_comm)
     MPI_Cart_shift(grid_comm, 0, 1, &neighbour_ranks[0],
                    &neighbour_ranks[1]);  // top, bottom
@@ -49,11 +53,23 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     MPI_Ibcast(&buf, 1, MPI_CHAR, base_station_world_rank, MPI_COMM_WORLD,
                &bcast_req);
     int bcast_received = 0;
+
+    unsigned char ip_addr[4];
+    unsigned char mac_addr[6];
+    if (!get_device_addresses(ip_addr, mac_addr)) MPI_Abort(MPI_COMM_WORLD, 1);
+
+    // get neighbour IP and MAC addresses
+    MPI_Neighbor_allgather(ip_addr, 4, MPI_UNSIGNED_CHAR, neighbour_ip_addrs, 4,
+                           MPI_UNSIGNED_CHAR, grid_comm);
+    MPI_Neighbor_allgather(mac_addr, 6, MPI_UNSIGNED_CHAR, neighbour_mac_addrs,
+                           6, MPI_UNSIGNED_CHAR, grid_comm);
+
     while (!bcast_received) {
-        start_time = MPI_Wtime();
+        start_time = MPI_Wtime() - mpi_start_wtime;
 
         // clear neighbour readings each iteration
         for (int i = 0; i < 4; ++i) neighbour_readings[i] = -1;
+
         reading = rand() % (1 + MAX_READING_VALUE);
         // gather readings from neighbours
         MPI_Neighbor_allgather(&reading, 1, MPI_INT, neighbour_readings, 1,
@@ -65,8 +81,10 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             msg.iteration = iteration;
             msg.reading = reading;
             msg.rank = grid_rank;
-            msg.coords[0] = coords[0];
-            msg.coords[1] = coords[1];
+
+            memcpy(msg.coords, coords, 2 * sizeof(int));
+            memcpy(msg.ip_addr, ip_addr, 4 * sizeof(unsigned char));
+            memcpy(msg.mac_addr, mac_addr, 6 * sizeof(unsigned char));
 
             int matching_neighbours = 0;
             // check neighbours
@@ -78,12 +96,18 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
                     // fill in their data
                     msg.neighbour_ranks[matching_neighbours] =
                         neighbour_ranks[i];
-                    msg.neighbour_coords[matching_neighbours][0] =
-                        neighbour_coords[i][0];
-                    msg.neighbour_coords[matching_neighbours][1] =
-                        neighbour_coords[i][1];
+
+                    memcpy(msg.neighbour_coords[matching_neighbours],
+                           neighbour_coords[i], 2 * sizeof(int));
+
                     msg.neighbour_readings[matching_neighbours] =
                         neighbour_readings[i];
+
+                    memcpy(msg.neighbour_ip_addrs[matching_neighbours],
+                           neighbour_ip_addrs[i], 4 * sizeof(unsigned char));
+                    memcpy(msg.neighbour_mac_addrs[matching_neighbours],
+                           neighbour_mac_addrs[i], 6 * sizeof(unsigned char));
+
                     ++matching_neighbours;
                 }
             }
@@ -93,7 +117,7 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             msg.time_since_epoch = (long)time(NULL);
 
             if (matching_neighbours >= 2) {
-                msg.mpi_time = MPI_Wtime();
+                msg.mpi_time = MPI_Wtime() - mpi_start_wtime;
                 // event with at least 2 matching neighbours, send to base
                 // (should ideally) buffer hence won't block
                 MPI_Send(&msg, 1, ground_message_type, base_station_world_rank,
@@ -101,7 +125,8 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
             }
         }
 
-        sleep_until_interval(start_time, INTERVAL_MILLISECONDS);
+        sleep_until_interval(start_time, INTERVAL_MILLISECONDS,
+                             mpi_start_wtime);
         // fix sync issue...
         // in case one proc gets ahead and subsequently blocks at gather
         MPI_Barrier(grid_comm);
@@ -110,6 +135,5 @@ void ground_station(MPI_Comm split_comm, int base_station_world_rank, int rows,
     }
     MPI_Wait(&bcast_req, MPI_STATUS_IGNORE);
 
-    printf("Rank %d (%d, %d) exiting\n", grid_rank, coords[0], coords[1]);
     MPI_Comm_free(&grid_comm);
 }
